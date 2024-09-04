@@ -1,10 +1,33 @@
 import os
 import argparse
 from concurrent.futures import ThreadPoolExecutor
+from pathlib import Path
 
 import boto3
 from tqdm import tqdm
 from P4 import P4, P4Exception
+
+p4 = P4()
+p4.connect()
+
+
+def get_p4_depot_root() -> Path:
+    """
+    Returns the local directory where depots are stored.
+    This is either the P4ROOT environment variable or the server.depot.root configuration value if it is set.
+    """
+    p4root = p4.run("configure", "show", "P4ROOT")[0]["Value"]
+    depot_root = p4.run("configure", "show", "server.depot.root")
+    depot_root = Path(depot_root[0]["Value"] if depot_root else p4root)
+    return depot_root
+
+
+def get_p4_depots() -> list[str]:
+    """
+    Returns a list of all depots in the Perforce server.
+    """
+    depots = p4.run("depots")
+    return [depot["name"] for depot in depots]
 
 
 def upload_file_to_s3(
@@ -15,20 +38,28 @@ def upload_file_to_s3(
 
     Args:
         s3_client (boto3.client): The S3 client object.
-        local_file_path (str): The path to the local file.
+        local_file_path (str | Path): The path to the local file.
         bucket_name (str): The name of the S3 bucket.
-        local_folder (str): The root local folder for relative path calculation.
-        pbar (tqdm.tqdm): The progress bar object.
+        local_folder (str | Path): The root local folder for relative path calculation.
+        progress_bar (tqdm.tqdm): The progress bar object.
     """
-    s3_key = os.path.relpath(local_file_path, local_folder)
-    s3_client.upload_file(
-        local_file_path,
-        bucket_name,
-        s3_key,
-        Config=boto3.s3.transfer.TransferConfig(use_threads=True),
-    )
+    # Check if the file already exists in S3
+    try:
+        s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+        print(f"Skipping {local_file_path} - already exists in S3")
+    except boto3.exceptions.ClientError as e:
+        if e.response["Error"]["Code"] == "404":  # File not found
+            s3_client.upload_file(
+                local_file_path,
+                bucket_name,
+                s3_key,
+                Config=boto3.s3.transfer.TransferConfig(use_threads=True),
+            )
+            print(f"Uploaded {local_file_path} to s3://{bucket_name}/{s3_key}")
+        else:
+            raise  # Re-raise other errors
+
     progress_bar.update(1)
-    print(f"Uploaded {local_file_path} to s3://{bucket_name}/{s3_key}")
 
 
 def migrate_folder_to_s3(
@@ -61,7 +92,7 @@ def migrate_folder_to_s3(
         all_files.extend(os.path.join(root, file) for file in files)
 
     with tqdm(
-        total=len(all_files), desc="Uploading files", unit="file"
+        total=len(all_files), desc="Processing files", unit="file"
     ) as progress_bar, ThreadPoolExecutor(max_workers=num_workers) as executor:
         # Submit upload tasks to the thread pool
         futures = [
