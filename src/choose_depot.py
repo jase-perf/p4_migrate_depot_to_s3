@@ -36,12 +36,15 @@ def get_depot_dir(p4, depot_name, depot_root) -> Path:
             f"Warning, depot {depot_name} already has an s3 address of {depot_info['Address']}.\nBe sure you want to copy the files from the local disk to S3 since they may already be in S3."
         )
     # Check if depot has an absolute path in its spec
-    if Path(depot_info["Map"]).is_absolute() and Path(depot_info["Map"]).exists():
+    if (
+        Path(depot_info["Map"]).is_absolute()
+        and Path(depot_info["Map"]).parent.exists()
+    ):
         return Path(depot_info["Map"])
     # Otherwise, combine depot root and the relative dir
     elif (Path(depot_root) / Path(depot_info["Map"])).is_absolute() and (
         Path(depot_root) / Path(depot_info["Map"])
-    ).exists():
+    ).parent.exists():
         return Path(depot_root) / Path(depot_info["Map"])
     # If that path doesn't exist, raise an error.
     else:
