@@ -2,36 +2,29 @@ import os
 import argparse
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
+import time
+import logging
 
 import boto3
 from tqdm import tqdm
-from P4 import P4, P4Exception
 
-p4 = P4()
-p4.connect()
-
-
-def get_p4_depot_root() -> Path:
-    """
-    Returns the local directory where depots are stored.
-    This is either the P4ROOT environment variable or the server.depot.root configuration value if it is set.
-    """
-    p4root = p4.run("configure", "show", "P4ROOT")[0]["Value"]
-    depot_root = p4.run("configure", "show", "server.depot.root")
-    depot_root = Path(depot_root[0]["Value"] if depot_root else p4root)
-    return depot_root
-
-
-def get_p4_depots() -> list[str]:
-    """
-    Returns a list of all depots in the Perforce server.
-    """
-    depots = p4.run("depots")
-    return [depot["name"] for depot in depots]
+# Setup Logging
+LOGFILE = "s3_migration.log"
+logger = logging.getLogger(__name__)
+logger.setLevel(logging.DEBUG)
+file_handler = logging.FileHandler(LOGFILE)
+file_handler.setLevel(logging.DEBUG)  # logging level for the file handler
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.INFO)  # logging level for the console handler
+formatter = logging.Formatter("%(asctime)s - %(levelname)s - %(message)s")
+file_handler.setFormatter(formatter)
+stream_handler.setFormatter(formatter)
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
 
 
 def upload_file_to_s3(
-    s3_client, local_file_path, bucket_name, local_folder, progress_bar
+    s3_client, local_file_path, bucket_name, local_folder, progress_bar, max_retries=3
 ):
     """
     Uploads a single file to S3 using the provided S3 client.
@@ -43,22 +36,36 @@ def upload_file_to_s3(
         local_folder (str | Path): The root local folder for relative path calculation.
         progress_bar (tqdm.tqdm): The progress bar object.
     """
-    # Check if the file already exists in S3
-    try:
-        s3_client.head_object(Bucket=bucket_name, Key=s3_key)
-        print(f"Skipping {local_file_path} - already exists in S3")
-    except boto3.exceptions.ClientError as e:
-        if e.response["Error"]["Code"] == "404":  # File not found
+    s3_key = os.path.relpath(local_file_path, local_folder)
+
+    for attempt in range(max_retries + 1):
+        try:
+            # Check if the file already exists in S3
+            try:
+                s3_client.head_object(Bucket=bucket_name, Key=s3_key)
+                logger.debug(f"Skipping {local_file_path} - already exists in S3")
+                break  # Skip if file exists
+            except boto3.exceptions.ClientError as e:
+                if e.response["Error"]["Code"] != "404":
+                    raise  # Re-raise other errors
+
+            # Upload the file
             s3_client.upload_file(
                 local_file_path,
                 bucket_name,
                 s3_key,
                 Config=boto3.s3.transfer.TransferConfig(use_threads=True),
             )
-            print(f"Uploaded {local_file_path} to s3://{bucket_name}/{s3_key}")
-        else:
-            raise  # Re-raise other errors
-
+            logger.debug(f"Uploaded {local_file_path} to s3://{bucket_name}/{s3_key}")
+            break  # Exit the loop if upload is successful
+        except Exception as e:  # Catch any exception during upload
+            if attempt >= max_retries:
+                logger.error("Failed to upload {local_file_path}")
+                raise  # Re-raise the error after max retries
+            logger.warning(
+                f"Error uploading {local_file_path}, retrying in 2 seconds..."
+            )
+            time.sleep(2)
     progress_bar.update(1)
 
 
@@ -77,6 +84,8 @@ def migrate_folder_to_s3(
         token (str, optional): The AWS session token (if required by the S3 provider).
         num_workers (int, optional): The number of worker threads to use for concurrent uploads.
     """
+    logger.info(f"Beginning upload of {local_folder} to s3 bucket: '{bucket_name}'")
+    logger.info(f"See {LOGFILE} for more detailed logs")
 
     s3 = boto3.client(
         "s3",
@@ -86,15 +95,14 @@ def migrate_folder_to_s3(
         aws_session_token=token,
     )
 
-    # Get a list of all files to upload for the progress bar
     all_files = []
     for root, dirs, files in os.walk(local_folder):
         all_files.extend(os.path.join(root, file) for file in files)
 
+    # Use tqdm progress bar and let threads update it concurrently
     with tqdm(
         total=len(all_files), desc="Processing files", unit="file"
     ) as progress_bar, ThreadPoolExecutor(max_workers=num_workers) as executor:
-        # Submit upload tasks to the thread pool
         futures = [
             executor.submit(
                 upload_file_to_s3,
@@ -106,7 +114,6 @@ def migrate_folder_to_s3(
             )
             for file_path in all_files
         ]
-
         # Wait for all tasks to complete
         for future in futures:
             future.result()  # This will raise any exceptions that occurred during upload
