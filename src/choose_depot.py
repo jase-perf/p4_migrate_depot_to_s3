@@ -37,22 +37,22 @@ def get_depot_dir(p4, depot_name, depot_root) -> Path:
         )
     # Check if depot has an absolute path in its spec
     if (
-        Path(depot_info["Map"]).is_absolute()
-        and Path(depot_info["Map"]).parent.exists()
+        Path(depot_info["Map"].lower()).is_absolute()
+        and Path(depot_info["Map"].lower()).parent.exists()
     ):
-        return Path(depot_info["Map"])
+        return Path(depot_info["Map"].lower())
     # Otherwise, combine depot root and the relative dir
-    elif (Path(depot_root) / Path(depot_info["Map"])).is_absolute() and (
-        Path(depot_root) / Path(depot_info["Map"])
+    elif (Path(depot_root) / Path(depot_info["Map"].lower())).is_absolute() and (
+        Path(depot_root) / Path(depot_info["Map"].lower())
     ).parent.exists():
-        return Path(depot_root) / Path(depot_info["Map"])
+        return Path(depot_root) / Path(depot_info["Map"].lower())
     # If that path doesn't exist, raise an error.
     else:
         print(
-            f"Depot {depot_name} does not have a local directory that exists at {Path(depot_root) / Path(depot_info['Map'])}. Be sure to run this script on the server itself, as the same user as the p4d service."
+            f"Depot {depot_name} does not have a local directory that exists at {Path(depot_root) / Path(depot_info['Map'].lower())}. Be sure to run this script on the server itself, as the same user as the p4d service."
         )
         raise FileExistsError(
-            f"Depot {depot_name} does not have a local directory that exists at {Path(depot_root) / Path(depot_info['Map'])}. Be sure to run this script on the server itself, as the same user as the p4d service."
+            f"Depot {depot_name} does not have a local directory that exists at {Path(depot_root) / Path(depot_info['Map'].lower())}. Be sure to run this script on the server itself, as the same user as the p4d service."
         )
 
 
