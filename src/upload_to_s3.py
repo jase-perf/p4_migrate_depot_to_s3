@@ -46,6 +46,7 @@ def upload_file_to_s3(
     """
     relative_path = os.path.relpath(local_file_path, local_folder)
     s3_key = os.path.join(prepend_path, relative_path).replace(os.sep, "/")
+    logger.debug(f"Uploading {local_file_path} to path '{s3_key}'")
 
     for attempt in range(max_retries + 1):
         try:
@@ -55,6 +56,7 @@ def upload_file_to_s3(
                 logger.debug(f"Skipping {local_file_path} - already exists in S3")
                 break  # Skip if file exists
             except ClientError as e:
+                logger.debug(e)
                 if e.response["Error"]["Code"] != "404":
                     raise  # Re-raise other errors
 
@@ -87,6 +89,7 @@ def migrate_folder_to_s3(
     prepend_path,
     token=None,
     num_workers=4,
+    region_name=None,
 ):
     """
     Migrates a complete folder structure from a local drive to an S3 bucket, preserving file paths.
@@ -107,6 +110,7 @@ def migrate_folder_to_s3(
 
     s3 = boto3.client(
         "s3",
+        region_name=region_name,
         endpoint_url=s3_url,
         aws_access_key_id=access_key,
         aws_secret_access_key=secret_key,
@@ -150,6 +154,9 @@ if __name__ == "__main__":
     parser.add_argument(
         "--prepend_path", required=True, help="Path to prepend to the S3 key"
     )
+    parser.add_argument(
+        "--aws_region", required=False, help="AWS region (required if using AWS S3)"
+    )
     parser.add_argument("--token", help="AWS session token (if required)", default=None)
     parser.add_argument(
         "--num_workers",
@@ -169,4 +176,5 @@ if __name__ == "__main__":
         args.prepend_path,
         args.token,
         args.num_workers,
+        args.aws_region,
     )
