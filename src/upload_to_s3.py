@@ -24,7 +24,13 @@ logger.addHandler(stream_handler)
 
 
 def upload_file_to_s3(
-    s3_client, local_file_path, bucket_name, local_folder, progress_bar, max_retries=3
+    s3_client,
+    local_file_path,
+    bucket_name,
+    local_folder,
+    prepend_path,
+    progress_bar,
+    max_retries=3,
 ):
     """
     Uploads a single file to S3 using the provided S3 client.
@@ -34,9 +40,11 @@ def upload_file_to_s3(
         local_file_path (str | Path): The path to the local file.
         bucket_name (str): The name of the S3 bucket.
         local_folder (str | Path): The root local folder for relative path calculation.
+        prepend_path (str): The path to prepend to the S3 key.
         progress_bar (tqdm.tqdm): The progress bar object.
     """
-    s3_key = os.path.relpath(local_file_path, local_folder)
+    relative_path = os.path.relpath(local_file_path, local_folder)
+    s3_key = os.path.join(prepend_path, relative_path).replace(os.sep, "/")
 
     for attempt in range(max_retries + 1):
         try:
@@ -60,7 +68,7 @@ def upload_file_to_s3(
             break  # Exit the loop if upload is successful
         except Exception as e:  # Catch any exception during upload
             if attempt >= max_retries:
-                logger.error("Failed to upload {local_file_path}")
+                logger.error(f"Failed to upload {local_file_path}")
                 raise  # Re-raise the error after max retries
             logger.warning(
                 f"Error uploading {local_file_path}, retrying in 2 seconds..."
@@ -70,7 +78,14 @@ def upload_file_to_s3(
 
 
 def migrate_folder_to_s3(
-    local_folder, s3_url, bucket_name, access_key, secret_key, token=None, num_workers=4
+    local_folder,
+    s3_url,
+    bucket_name,
+    access_key,
+    secret_key,
+    prepend_path,
+    token=None,
+    num_workers=4,
 ):
     """
     Migrates a complete folder structure from a local drive to an S3 bucket, preserving file paths.
@@ -81,10 +96,12 @@ def migrate_folder_to_s3(
         bucket_name (str): The name of the S3 bucket.
         access_key (str): The AWS access key.
         secret_key (str): The AWS secret key.
+        prepend_path (str): The path to prepend to the S3 key.
         token (str, optional): The AWS session token (if required by the S3 provider).
         num_workers (int, optional): The number of worker threads to use for concurrent uploads.
     """
     logger.info(f"Beginning upload of {local_folder} to s3 bucket: '{bucket_name}'")
+    logger.info(f"Prepending path: '{prepend_path}' to S3 keys")
     logger.info(f"See {LOGFILE} for more detailed logs")
 
     s3 = boto3.client(
@@ -110,6 +127,7 @@ def migrate_folder_to_s3(
                 file_path,
                 bucket_name,
                 local_folder,
+                prepend_path,
                 progress_bar,
             )
             for file_path in all_files
@@ -128,6 +146,9 @@ if __name__ == "__main__":
     parser.add_argument("--bucket_name", required=True, help="S3 bucket name")
     parser.add_argument("--access_key", required=True, help="AWS access key")
     parser.add_argument("--secret_key", required=True, help="AWS secret key")
+    parser.add_argument(
+        "--prepend_path", required=True, help="Path to prepend to the S3 key"
+    )
     parser.add_argument("--token", help="AWS session token (if required)", default=None)
     parser.add_argument(
         "--num_workers",
@@ -144,6 +165,7 @@ if __name__ == "__main__":
         args.bucket_name,
         args.access_key,
         args.secret_key,
+        args.prepend_path,
         args.token,
         args.num_workers,
     )
