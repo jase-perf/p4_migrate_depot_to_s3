@@ -71,7 +71,7 @@ def upload_file_to_s3(
                 logger.error(f"Failed to upload {local_file_path}")
                 raise  # Re-raise the error after max retries
             logger.warning(
-                f"Error uploading {local_file_path}, retrying in 2 seconds..."
+                f"Error uploading {local_file_path}, retrying in 2 seconds...\n{e}"
             )
             time.sleep(2)
     progress_bar.update(1)
