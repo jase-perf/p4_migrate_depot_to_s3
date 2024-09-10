@@ -143,21 +143,50 @@ def migrate_folder_to_s3(
             future.result()  # This will raise any exceptions that occurred during upload
 
 
+def construct_address(s3_url, bucket_name, access_key, secret_key, token, aws_region):
+    """
+    Constructs the S3 address for the depot spec based on the provided parameters.
+    """
+    address_parts = [
+        "s3",
+        f"bucket:{bucket_name}",
+        f"accessKey:{access_key}",
+        f"secretKey:{secret_key}",
+    ]
+    if s3_url:
+        address_parts.append(f"url:{s3_url}")
+    if aws_region:
+        address_parts.append(f"region:{aws_region}")
+    if token:
+        address_parts.append(f"token:{token}")
+
+    address_string = ",".join(address_parts)
+
+    logger.info(
+        f"Edit the p4 depot spec with `p4 depot` command and add this line:\nAddress:\t{address_string}"
+    )
+
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Migrate a folder structure to S3")
     parser.add_argument(
         "--local_folder", required=True, help="Path to the local folder"
     )
-    parser.add_argument("--s3_url", required=True, help="S3 endpoint URL")
+    parser.add_argument(
+        "--s3_url", required=False, help="S3 endpoint URL (Not required for AWS)"
+    )
+    parser.add_argument(
+        "--aws_region",
+        required=False,
+        help="AWS region (only required if using AWS S3)",
+    )
     parser.add_argument("--bucket_name", required=True, help="S3 bucket name")
     parser.add_argument("--access_key", required=True, help="AWS access key")
     parser.add_argument("--secret_key", required=True, help="AWS secret key")
     parser.add_argument(
         "--prepend_path", required=True, help="Path to prepend to the S3 key"
     )
-    parser.add_argument(
-        "--aws_region", required=False, help="AWS region (required if using AWS S3)"
-    )
+
     parser.add_argument("--token", help="AWS session token (if required)", default=None)
     parser.add_argument(
         "--num_workers",
@@ -165,17 +194,25 @@ if __name__ == "__main__":
         default=4,
         help="Number of worker threads to use for concurrent uploads",
     )
-
     args = parser.parse_args()
 
     migrate_folder_to_s3(
-        args.local_folder,
-        args.s3_url,
-        args.bucket_name,
-        args.access_key,
-        args.secret_key,
-        args.prepend_path,
-        args.token,
-        args.num_workers,
-        args.aws_region,
+        local_folder=args.local_folder,
+        s3_url=args.s3_url,
+        bucket_name=args.bucket_name,
+        access_key=args.access_key,
+        secret_key=args.secret_key,
+        prepend_path=args.prepend_path,
+        token=args.token,
+        num_workers=args.num_workers,
+        region_name=args.aws_region,
+    )
+
+    construct_address(
+        s3_url=args.s3_url,
+        bucket_name=args.bucket_name,
+        access_key=args.access_key,
+        secret_key=args.secret_key,
+        token=args.token,
+        aws_region=args.aws_region,
     )
