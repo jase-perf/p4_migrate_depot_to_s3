@@ -45,7 +45,8 @@ def upload_file_to_s3(
         progress_bar (tqdm.tqdm): The progress bar object.
     """
     relative_path = os.path.relpath(local_file_path, local_folder)
-    s3_key = os.path.join(prepend_path, relative_path).replace(os.sep, "/")
+    folder_name = os.path.basename(local_folder)
+    s3_key = os.path.join(prepend_path, folder_name, relative_path).replace(os.sep, "/")
     logger.debug(f"Uploading {local_file_path} to path '{s3_key}'")
 
     for attempt in range(max_retries + 1):
