@@ -6,6 +6,7 @@ import time
 import logging
 
 import boto3
+from botocore.exceptions import ClientError
 from tqdm import tqdm
 
 # Setup Logging
@@ -53,7 +54,7 @@ def upload_file_to_s3(
                 s3_client.head_object(Bucket=bucket_name, Key=s3_key)
                 logger.debug(f"Skipping {local_file_path} - already exists in S3")
                 break  # Skip if file exists
-            except boto3.exceptions.ClientError as e:
+            except ClientError as e:
                 if e.response["Error"]["Code"] != "404":
                     raise  # Re-raise other errors
 
